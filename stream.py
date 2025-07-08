@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.ticker import PercentFormatter
 
 # --- Configuración de la Página (Mejor práctica) ---
 # Esto debe ser el primer comando de Streamlit en tu script.
@@ -153,31 +151,22 @@ if st.session_state.get('simulation_run', False):
     col3.metric(label="Costo con 90% Confianza (P90)", value=f"${costo_p90:,.2f}", 
                 help="Hay un 90% de probabilidad de que el costo del proyecto sea menor o igual a este valor.")
 
-    st.subheader("Distribución de Probabilidad Acumulada (Curva S)")
-    
-    # Preparar datos para la Curva S
+    st.subheader("Distribución de Probabilidad (Curva S)")
+
+    # Preparar datos para el gráfico de línea nativo de Streamlit
     sorted_results = np.sort(results)
     cumulative_prob = np.arange(1, len(sorted_results) + 1) / len(sorted_results)
+    
+    # Crear un DataFrame para el gráfico
+    chart_data = pd.DataFrame({
+        'Costo del Proyecto ($)': sorted_results,
+        'Probabilidad Acumulada': cumulative_prob
+    })
 
-    fig, ax = plt.subplots()
-    ax.plot(sorted_results, cumulative_prob, color='#FF2400', linewidth=2.5, label="Curva S de Costos")
+    # Usar st.line_chart para un gráfico interactivo y optimizado
+    st.line_chart(chart_data, x='Costo del Proyecto ($)', y='Probabilidad Acumulada', color="#FF4B4B")
+    st.caption(f"El costo más probable (P50) es de **${costo_probable:,.2f}**. Hay un 90% de probabilidad de que el costo sea menor o igual a **${costo_p90:,.2f}**.")
 
-    # Líneas de referencia para P50 y P90
-    ax.axhline(y=0.5, color='grey', linestyle='--', linewidth=1)
-    ax.axvline(x=costo_probable, color='grey', linestyle='--', linewidth=1)
-    ax.plot(costo_probable, 0.5, 'o', color="#FF2400", markersize=8, label=f"P50 (Probable): ${costo_probable:,.2f}")
-
-    ax.axhline(y=0.9, color='grey', linestyle='--', linewidth=1)
-    ax.axvline(x=costo_p90, color='grey', linestyle='--', linewidth=1)
-    ax.plot(costo_p90, 0.9, 'o', color='#FF2400', markersize=8, label=f"P90 (Confianza 90%): ${costo_p90:,.2f}")
-
-    ax.set_xlabel("Costo Total del Proyecto ($)")
-    ax.set_ylabel("Probabilidad Acumulada")
-    ax.legend()
-    ax.grid(True, linestyle='--', alpha=0.3)
-    ax.yaxis.set_major_formatter(PercentFormatter(1.0))
-    ax.set_ylim(0, 1.05) # Añadir un poco de espacio en la parte superior
-    st.pyplot(fig)
 
     with st.expander("Ver Estadísticas Detalladas"):
         st.dataframe(stats.to_frame(name='Valor').style.format("${:,.2f}"))
