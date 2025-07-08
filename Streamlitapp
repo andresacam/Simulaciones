@@ -1,0 +1,145 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- Configuración Inicial y Estado de la Sesión ---
+
+st.set_page_config(layout="wide", page_title="Simulador de Costos Monte Carlo")
+
+# Inicializa las variables en el estado de la sesión si no existen
+if 'iteraciones' not in st.session_state:
+    st.session_state.iteraciones = 1000  # Valor por defecto
+if 'data' not in st.session_state:
+    st.session_state.data = []
+if 'simulation_run' not in st.session_state:
+    st.session_state.simulation_run = False
+
+# --- Funciones ---
+
+def run_monte_carlo_simulation(data, iterations):
+    """
+    Ejecuta una simulación de Monte Carlo basada en una distribución triangular.
+    Guarda los resultados detallados y totales en el estado de la sesión.
+    """
+    simulation_results = {}
+    for index, row in data.iterrows():
+        item_name = row['Nombre del Item']
+        min_val = row['Valor Mínimo']
+        probable_val = row['Valor Probable']
+        max_val = row['Valor Máximo']
+        
+        simulation_results[item_name] = np.random.triangular(min_val, probable_val, max_val, iterations)
+        
+    df_simulation = pd.DataFrame(simulation_results)
+    total_cost_per_iteration = df_simulation.sum(axis=1)
+    
+    # Guardar ambos resultados en el estado de la sesión para uso futuro
+    st.session_state.df_simulation_results = df_simulation
+    st.session_state.results = total_cost_per_iteration
+    st.session_state.simulation_run = True
+
+# --- Barra Lateral (Sidebar) ---
+
+with st.sidebar:
+    st.markdown("<h1 style='text-align: center;'>Configuración</h1>", unsafe_allow_html=True)
+    st.session_state.iteraciones = st.number_input(
+        "Número de Iteraciones", 
+        min_value=1, 
+        max_value=100000, 
+        value=st.session_state.iteraciones, 
+        step=1000,
+        help="Número de escenarios a simular. Un número mayor da más precisión pero tarda más."
+    )
+    
+    if st.button("Restablecer Todo", type="primary", use_container_width=True):
+         st.session_state.data = []
+         # Limpiar también los resultados de la simulación si existen
+         st.session_state.simulation_run = False
+         if 'results' in st.session_state:
+             del st.session_state.results
+         if 'df_simulation_results' in st.session_state:
+             del st.session_state.df_simulation_results
+         st.success("¡Aplicación restablecida!")
+
+# --- Contenido Principal de la Página ---
+
+st.title("Calculadora de Costos de Proyecto con Simulación Monte Carlo")
+st.markdown("Agrega los items de tu proyecto con sus costos estimados (mínimo, más probable y máximo) y luego ejecuta la simulación para entender el rango probable de costos totales.")
+
+# --- Formulario de Entrada de Datos ---
+with st.expander("Agregar un nuevo item al proyecto", expanded=True):
+    with st.form("item_form", clear_on_submit=True):
+        item_name = st.text_input("Nombre del Item", placeholder="Ej: Diseño de UI/UX")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            valor_minimo = st.number_input("Valor Mínimo ($)", value=None, min_value=0.0, format="%.2f", placeholder="Costo pesimista")
+        with col2:
+            valor_probable = st.number_input("Valor Probable ($)", value=None, min_value=0.0, format="%.2f", placeholder="Costo más probable")
+        with col3:
+            valor_maximo = st.number_input("Valor Máximo ($)", value=None, min_value=0.0, format="%.2f", placeholder="Costo optimista")
+
+        submitted = st.form_submit_button("Agregar Item")
+        if submitted:
+            if not all([item_name, valor_minimo is not None, valor_probable is not None, valor_maximo is not None]):
+                st.warning("Por favor, completa todos los campos para agregar el item.")
+            elif not (valor_minimo <= valor_probable <= valor_maximo):
+                st.error("Error en los valores: Asegúrate de que Mínimo ≤ Probable ≤ Máximo.")
+            else:
+                st.session_state.data.append({
+                    'Nombre del Item': item_name,
+                    'Valor Mínimo': valor_minimo,
+                    'Valor Probable': valor_probable,
+                    'Valor Máximo': valor_maximo
+                })
+                st.success(f"Item '{item_name}' agregado.")
+
+# --- Tabla de Items y Botón de Simulación ---
+if st.session_state.data:
+    st.subheader("Items del Proyecto")
+    df = pd.DataFrame(st.session_state.data)
+    st.dataframe(df)
+
+    if st.button("🚀 Ejecutar Simulación", type="primary", use_container_width=True):
+        st.session_state.dfg = df
+        with st.spinner(f"Ejecutando {st.session_state.iteraciones:,} simulaciones..."):
+            run_monte_carlo_simulation(df, st.session_state.iteraciones)
+        st.success("¡Simulación completada!")
+else:
+    st.info("Aún no has agregado items a tu proyecto.")
+
+st.divider()
+
+# --- Sección de Resultados ---
+if st.session_state.simulation_run:
+    results = st.session_state.results
+    st.subheader("📊 Resultados de la Simulación")
+
+    # Métricas clave
+    stats = results.describe(percentiles=[.10, .50, .90])
+    costo_probable = stats['50%']
+    costo_promedio = stats['mean']
+    costo_p90 = stats['90%']
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric(label="Costo Más Probable (P50)", value=f"${costo_probable:,.2f}")
+    col2.metric(label="Costo Promedio", value=f"${costo_promedio:,.2f}")
+    col3.metric(label="Costo con 90% Confianza (P90)", value=f"${costo_p90:,.2f}", 
+                help="Hay un 90% de probabilidad de que el costo del proyecto sea menor o igual a este valor.")
+
+    # Histograma de resultados
+    st.subheader("Distribución de Costos del Proyecto")
+    fig, ax = plt.subplots()
+    ax.hist(results, bins=50, edgecolor='k', alpha=0.7, color='#1f77b4')
+    ax.axvline(costo_promedio, color='#d62728', linestyle='--', linewidth=2, label=f"Promedio: ${costo_promedio:,.2f}")
+    ax.axvline(costo_probable, color='#2ca02c', linestyle='--', linewidth=2, label=f"P50: ${costo_probable:,.2f}")
+    ax.set_xlabel("Costo Total del Proyecto ($)")
+    ax.set_ylabel("Frecuencia")
+    ax.legend()
+    ax.grid(True, linestyle=':', alpha=0.6)
+    st.pyplot(fig)
+
+    # Expander con estadísticas detalladas
+    with st.expander("Ver Estadísticas Detalladas"):
+        st.dataframe(stats.to_frame(name='Valor').style.format("${:,.2f}"))
+
