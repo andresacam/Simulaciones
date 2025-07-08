@@ -9,7 +9,7 @@ from matplotlib.ticker import PercentFormatter
 st.set_page_config(layout="wide", page_title="Simulador de Costos de Proyecto")
 
 if 'iteraciones' not in st.session_state:
-    st.session_state.iteraciones = 1000  # Valor por defecto
+    st.session_state.iteraciones = 10000  # Valor por defecto
 
 
 # Sidebar
@@ -97,7 +97,7 @@ if 'data' not in st.session_state:
 # Use a form for better performance and user experience
 with st.form("item_form", clear_on_submit=True):
     # Input fields
-    item_name = st.text_input("Nombre del Item", placeholder="Ej: Diseño de UI/UX")
+    item_name = st.text_input("Nombre del Item", placeholder="Ej: Costo de X material")
     valor_minimo = st.number_input("Valor Mínimo", value=None, min_value=0.0, format="%.2f", placeholder="Ej: 1000.00")
     valor_probable = st.number_input("Valor Probable", value=None, min_value=0.0, format="%.2f", placeholder="Ej: 1500.00")
     valor_maximo = st.number_input("Valor Máximo", value=None, min_value=0.0, format="%.2f", placeholder="Ej: 2500.00")
@@ -140,7 +140,7 @@ st.divider()
 # Muestra los resultados si la simulación ya se ha ejecutado
 if st.session_state.get('simulation_run', False):
     results = st.session_state.results
-    st.subheader("📊 Resultados de la Simulación (Distribución PERT)")
+    st.subheader("Resultados de la Simulación (Distribución PERT)")
 
     stats = results.describe(percentiles=[.10, .25, .50, .75, .90])
     costo_probable = stats['50%']
@@ -165,11 +165,11 @@ if st.session_state.get('simulation_run', False):
     # Líneas de referencia para P50 y P90
     ax.axhline(y=0.5, color='grey', linestyle='--', linewidth=1)
     ax.axvline(x=costo_probable, color='grey', linestyle='--', linewidth=1)
-    ax.plot(costo_probable, 0.5, 'o', color='#1f77b4', markersize=8, label=f"P50 (Probable): ${costo_probable:,.2f}")
+    ax.plot(costo_probable, 0.5, 'o', color="#FF2400", markersize=8, label=f"P50 (Probable): ${costo_probable:,.2f}")
 
     ax.axhline(y=0.9, color='grey', linestyle='--', linewidth=1)
     ax.axvline(x=costo_p90, color='grey', linestyle='--', linewidth=1)
-    ax.plot(costo_p90, 0.9, 'o', color='#ff7f0e', markersize=8, label=f"P90 (Confianza 90%): ${costo_p90:,.2f}")
+    ax.plot(costo_p90, 0.9, 'o', color='#FF2400', markersize=8, label=f"P90 (Confianza 90%): ${costo_p90:,.2f}")
 
     ax.set_xlabel("Costo Total del Proyecto ($)")
     ax.set_ylabel("Probabilidad Acumulada")
@@ -185,24 +185,12 @@ if st.session_state.get('simulation_run', False):
     st.divider()
 
     # --- Gráfico de Contribución por Item ---
-    st.subheader("🔎 Contribución de Costos por Item")
+    st.subheader("Contribución de Costos por Item")
 
-    col1, col2 = st.columns([1, 2], gap="large")
-
-    with col1:
-        # Obtener el DataFrame con los resultados de la simulación por item
-        df_simulation = st.session_state.df_simulation_results
-        
-        # Calcular el costo promedio para cada item y mostrarlo en una tabla
-        item_avg_costs = df_simulation.mean().sort_values(ascending=False)
-        st.write("Costo Promedio por Item:")
-        st.dataframe(item_avg_costs.to_frame(name='Costo Promedio').style.format("${:,.2f}"))
-
-    with col2:
-        # Crear el gráfico de torta (estilo dona)
-        fig2, ax2 = plt.subplots()
-        ax2.pie(item_avg_costs, labels=item_avg_costs.index, autopct='%1.1f%%', startangle=90,
-                wedgeprops=dict(width=0.4, edgecolor='w')) # El borde blanco se ve bien en tema oscuro
-        ax2.axis('equal')  # Asegura que el gráfico sea un círculo.
-        
-        st.pyplot(fig2)
+    # Obtener el DataFrame con los resultados de la simulación por item
+    df_simulation = st.session_state.df_simulation_results
+    
+    # Calcular el costo promedio para cada item y mostrarlo en una tabla
+    item_avg_costs = df_simulation.mean().sort_values(ascending=False)
+    st.write("Costo Promedio por Item:")
+    st.dataframe(item_avg_costs.to_frame(name='Costo Promedio').style.format("${:,.2f}"))
