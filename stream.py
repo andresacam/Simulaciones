@@ -2,10 +2,14 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import PercentFormatter
 
+# --- Configuración de la Página (Mejor práctica) ---
+# Esto debe ser el primer comando de Streamlit en tu script.
+st.set_page_config(layout="wide", page_title="Simulador de Costos de Proyecto")
 
 if 'iteraciones' not in st.session_state:
-    st.session_state.iteraciones = 1000  # Valor por defecto
+    st.session_state.iteraciones = 10000  # Valor por defecto
 
 
 # Sidebar
@@ -24,9 +28,43 @@ with st.sidebar:
              del st.session_state.df_simulation_results
          st.success("Items reseteados!")
 
+def pert_distribution(min_val, probable_val, max_val, size=1):
+    """
+    Genera valores aleatorios siguiendo una distribución PERT.
+    Utiliza un valor fijo de gamma = 4, que es el estándar más común.
+    Esta distribución es una variante de la distribución Beta, escalada al rango [min_val, max_val].
+    """
+    # Validación de seguridad: si el rango es cero o negativo, todos los valores son el mismo.
+    if max_val <= min_val:
+        return np.full(size, min_val)
+
+    gamma = 4.0  # Valor estándar y fijo para gamma
+
+    # Calcular la media (mu) de la distribución PERT
+    mu = (min_val + gamma * probable_val + max_val) / (gamma + 2)
+
+    # Calcular los parámetros alpha y beta para la distribución Beta subyacente.
+    # Se añaden salvaguardas para evitar la división por cero si mu coincide con los extremos.
+    if mu == probable_val:
+        # Caso especial simétrico, evita división por cero
+        alpha = 1 + gamma / 2
+    else:
+        # Fórmula general para alpha
+        alpha = ((mu - min_val) * (2 * probable_val - min_val - max_val)) / ((probable_val - mu) * (max_val - min_val))
+
+    # Beta se deriva de alpha y debe ser positivo
+    beta = max(alpha * (max_val - mu) / (mu - min_val), 1e-9)
+    alpha = max(alpha, 1e-9) # Asegurarse de que alpha también sea positivo
+
+    # Generar valores aleatorios de la distribución Beta en el rango [0, 1]
+    beta_samples = np.random.beta(alpha, beta, size)
+
+    # Escalar los valores al rango [min_val, max_val]
+    return min_val + beta_samples * (max_val - min_val)
+
 def run_monte_carlo_simulation(data, iterations):
     """
-    Ejecuta una simulación de Monte Carlo basada en una distribución triangular.
+    Ejecuta una simulación de Monte Carlo basada en una distribución PERT.
     """
     simulation_results = {}
     for index, row in data.iterrows():
@@ -35,7 +73,8 @@ def run_monte_carlo_simulation(data, iterations):
         probable_val = row['Valor Probable']
         max_val = row['Valor Máximo']
         
-        simulation_results[item_name] = np.random.triangular(min_val, probable_val, max_val, iterations)
+        # Usar la nueva función de distribución PERT
+        simulation_results[item_name] = pert_distribution(min_val, probable_val, max_val, iterations)
         
     df_simulation = pd.DataFrame(simulation_results)
     total_cost_per_iteration = df_simulation.sum(axis=1)
@@ -48,8 +87,8 @@ def run_monte_carlo_simulation(data, iterations):
 
 # Main content
 st.title("Calculá el costo de tu Proyecto")
-st.write("Agregá los items de tu proyecto y calculá el costo total.")
-st.write("Cuando hayas terminado guarda el Dataset para comenzar a simular.")
+st.write("Agregá los items de tu proyecto y calculá el costo total usando una **Simulación de Monte Carlo con distribución PERT**.")
+st.write("Cuando hayas terminado, guarda el Dataset para comenzar a simular.")
 
 # Initialize session state for DataFrame
 if 'data' not in st.session_state:
@@ -58,7 +97,7 @@ if 'data' not in st.session_state:
 # Use a form for better performance and user experience
 with st.form("item_form", clear_on_submit=True):
     # Input fields
-    item_name = st.text_input("Nombre del Item", placeholder="Ej: Diseño de UI/UX")
+    item_name = st.text_input("Nombre del Item", placeholder="Ej: Costo de X material")
     valor_minimo = st.number_input("Valor Mínimo", value=None, min_value=0.0, format="%.2f", placeholder="Ej: 1000.00")
     valor_probable = st.number_input("Valor Probable", value=None, min_value=0.0, format="%.2f", placeholder="Ej: 1500.00")
     valor_maximo = st.number_input("Valor Máximo", value=None, min_value=0.0, format="%.2f", placeholder="Ej: 2500.00")
@@ -101,7 +140,7 @@ st.divider()
 # Muestra los resultados si la simulación ya se ha ejecutado
 if st.session_state.get('simulation_run', False):
     results = st.session_state.results
-    st.subheader("📊 Resultados de la Simulación")
+    st.subheader("Resultados de la Simulación (Distribución PERT)")
 
     stats = results.describe(percentiles=[.10, .25, .50, .75, .90])
     costo_probable = stats['50%']
@@ -114,16 +153,44 @@ if st.session_state.get('simulation_run', False):
     col3.metric(label="Costo con 90% Confianza (P90)", value=f"${costo_p90:,.2f}", 
                 help="Hay un 90% de probabilidad de que el costo del proyecto sea menor o igual a este valor.")
 
-    st.subheader("Distribución de Costos del Proyecto")
+    st.subheader("Distribución de Probabilidad Acumulada (Curva S)")
+    
+    # Preparar datos para la Curva S
+    sorted_results = np.sort(results)
+    cumulative_prob = np.arange(1, len(sorted_results) + 1) / len(sorted_results)
+
     fig, ax = plt.subplots()
-    ax.hist(results, bins=50, edgecolor='black', alpha=0.7)
-    ax.axvline(costo_promedio, color='red', linestyle='--', linewidth=2, label=f"Promedio: ${costo_promedio:,.2f}")
-    ax.axvline(costo_probable, color='green', linestyle='--', linewidth=2, label=f"P50: ${costo_probable:,.2f}")
+    ax.plot(sorted_results, cumulative_prob, color='#FF2400', linewidth=2.5, label="Curva S de Costos")
+
+    # Líneas de referencia para P50 y P90
+    ax.axhline(y=0.5, color='grey', linestyle='--', linewidth=1)
+    ax.axvline(x=costo_probable, color='grey', linestyle='--', linewidth=1)
+    ax.plot(costo_probable, 0.5, 'o', color="#FF2400", markersize=8, label=f"P50 (Probable): ${costo_probable:,.2f}")
+
+    ax.axhline(y=0.9, color='grey', linestyle='--', linewidth=1)
+    ax.axvline(x=costo_p90, color='grey', linestyle='--', linewidth=1)
+    ax.plot(costo_p90, 0.9, 'o', color='#FF2400', markersize=8, label=f"P90 (Confianza 90%): ${costo_p90:,.2f}")
+
     ax.set_xlabel("Costo Total del Proyecto ($)")
-    ax.set_ylabel("Frecuencia")
+    ax.set_ylabel("Probabilidad Acumulada")
     ax.legend()
-    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.grid(True, linestyle='--', alpha=0.3)
+    ax.yaxis.set_major_formatter(PercentFormatter(1.0))
+    ax.set_ylim(0, 1.05) # Añadir un poco de espacio en la parte superior
     st.pyplot(fig)
 
     with st.expander("Ver Estadísticas Detalladas"):
         st.dataframe(stats.to_frame(name='Valor').style.format("${:,.2f}"))
+
+    st.divider()
+
+    # --- Gráfico de Contribución por Item ---
+    st.subheader("Contribución de Costos por Item")
+
+    # Obtener el DataFrame con los resultados de la simulación por item
+    df_simulation = st.session_state.df_simulation_results
+    
+    # Calcular el costo promedio para cada item y mostrarlo en una tabla
+    item_avg_costs = df_simulation.mean().sort_values(ascending=False)
+    st.write("Costo Promedio por Item:")
+    st.dataframe(item_avg_costs.to_frame(name='Costo Promedio').style.format("${:,.2f}"))
